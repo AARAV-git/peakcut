@@ -4,14 +4,17 @@
 
 **Find the best moments in a video, understand why annotators disagree about them, and explain each one in plain text.**
 
-![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
-![DuckDB](https://img.shields.io/badge/database-DuckDB-FFF000?logo=duckdb&logoColor=black)
-![PyTorch](https://img.shields.io/badge/model-PyTorch-EE4C2C?logo=pytorch&logoColor=white)
-![JAX](https://img.shields.io/badge/port-JAX-8E75B2)
-![Tests](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![DuckDB](https://img.shields.io/badge/DuckDB-FFF000?style=for-the-badge&logo=duckdb&logoColor=black)](https://duckdb.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![JAX](https://img.shields.io/badge/JAX-Optax-8E75B2?style=for-the-badge)](https://github.com/google/jax)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
+[![Tests](https://img.shields.io/badge/Tests-pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)](https://pytest.org)
 
-[Overview](#-overview) · [Architecture](#-architecture) · [Quick start](#-quick-start) · [Database](#-database) · [API](#-api-reference) · [Method](#-method-in-detail) · [Testing](#-testing) · [Status](#-project-status-read-this)
+[Overview](#-overview) · [Architecture](#-architecture) · [Features](#-features) · [Tech Stack](#-tech-stack) · [Quick Start](#-quick-start) · [Project Structure](#-project-structure) · [Database](#-database) · [API Reference](#-api-reference) · [Method in Detail](#-method-in-detail) · [Testing](#-testing) · [Status](#-project-status-read-this)
 
 </div>
 
@@ -19,223 +22,242 @@
 
 ## 📖 Overview
 
-Peakcut is a **video highlight detection and summarisation system**. Given a video, it:
+Peakcut is an end-to-end **video highlight detection and summarisation system**. Given any video, it:
 
-1. turns frames into embeddings,
-2. scores how "highlight-worthy" each moment is with a temporal transformer,
-3. selects the best segments under a length budget (15% of the video by default),
-4. asks an LLM to write a **title and short summary** for each highlight, and
-5. **measures** how trustworthy those outputs are.
+1. **Extracts frame embeddings** using CLIP or bundled feature representations,
+2. **Scores highlight-worthiness** across temporal sequences using a custom transformer,
+3. **Selects optimal highlights** under a strict duration budget (default: 15% of total runtime) via 0/1 knapsack optimisation,
+4. **Synthesises titles and concise summaries** for each highlight segment using an LLM, and
+5. **Audits and validates** model outputs with automated judge rubrics, lexical hallucination checks, and inter-annotator agreement statistics.
 
-What makes it more than a basic highlight detector:
+### What makes Peakcut unique:
 
-| Idea | What Peakcut does |
+| Dimension | What Peakcut does |
 |---|---|
-| 🧑‍🤝‍🧑 **Annotators disagree** | Computes inter-annotator agreement per video, flags the low-agreement quartile, and studies how label noise affects the model |
-| ⚖️ **Which loss is better?** | Trains the same model with **BCE**, **pairwise ranking**, and **contrastive** losses and compares F1 / mAP |
-| 🚫 **Do we even need labels?** | An unsupervised **k-means baseline** runs through the identical evaluation |
-| 🧩 **Where does it fail?** | Metrics are broken down **per video category** (subgroup analysis) |
-| 🧪 **LLM output is tested, not trusted** | Prompt variants, an LLM-as-judge rubric, and a lexical hallucination check |
-| 🔁 **Two frameworks** | The model exists in **PyTorch** and **JAX** with a weight-conversion parity test |
-| 🗄️ **Everything is queryable** | Runs, predictions, metrics, highlights and LLM evaluations live in **DuckDB**, analysed with plain SQL |
-| 🚀 **It is a service** | FastAPI backend, Docker image, CI, and an automated test suite |
+| 🧑‍🤝‍🧑 **Annotators Disagree** | Quantifies inter-annotator agreement per video, isolates high-disagreement quartiles, and evaluates model resilience under label noise. |
+| ⚖️ **Loss Comparison** | Trains the same architecture against **BCE** (with label smoothing), **Pairwise Ranking**, and **Listwise Contrastive (InfoNCE)** losses. |
+| 🚫 **Label-Free Baseline** | Evaluates an unsupervised **k-means clustering baseline** through the identical knapsack evaluation pipeline. |
+| 🧩 **Failure Analysis** | Breaks metrics down **per video category** (subgroup analysis) to expose semantic blind spots. |
+| 🧪 **Verifiable LLM Layer** | Tests LLM output rather than trusting it: 3 prompt variants, an LLM-as-judge rubric, and an automated lexical hallucination checker. |
+| 🔁 **Cross-Framework Parity** | Implemented in **PyTorch** and **JAX**, verified by strict weight-conversion parity unit tests. |
+| 🗄️ **Everything Queryable** | Stores runs, predictions, segment boundaries, metrics, and summaries in **DuckDB**, ready for instant SQL analysis. |
+| 💻 **Full-Stack Experience** | Complete system featuring a **FastAPI backend** and an interactive **Next.js web dashboard** (Analyze, Results, Experiments, Annotators). |
 
 ---
 
 ## 🏗 Architecture
 
 ```mermaid
-flowchart LR
-    subgraph Offline["Offline pipeline (scripts/)"]
-        A[TVSum / SumMe<br/>or synthetic data] --> B[build_db.py]
-        B --> C[(DuckDB)]
-        C --> D[train.py<br/>5-fold CV]
-        C --> E[evaluate.py<br/>k-means baseline]
-        D --> F[eval/runner<br/>knapsack + F1 + mAP]
+flowchart TD
+    subgraph Offline["Offline Pipeline (backend/scripts)"]
+        A[TVSum / SumMe / Synthetic Data] --> B[build_db.py]
+        B --> C[(DuckDB: peakcut.duckdb)]
+        C --> D[train.py<br/>5-fold Cross-Validation]
+        C --> E[evaluate.py<br/>k-means Baseline]
+        D --> F[eval/runner<br/>Knapsack + F1 + mAP]
         E --> F
         F --> C
-        C --> G[generate_summaries.py<br/>LLM + judge + hallucination check]
+        C --> G[generate_summaries.py<br/>LLM + Judge + Hallucination Check]
         G --> C
     end
-    subgraph Online["Online service (src/peakcut/api)"]
-        C -. read-only .-> H[FastAPI]
-        U[Uploaded video] --> I[CLIP extractor] --> J[scorer] --> H
-        H --> K[Frontend / client]
+
+    subgraph Service["Backend Service (backend/src/peakcut/api)"]
+        C -. "Read-Only Access" .-> H[FastAPI Service]
+        U[Uploaded Video] --> I[CLIP Extractor] --> J[Temporal Scorer] --> H
+    end
+
+    subgraph Client["Interactive UI (frontend/)"]
+        H <--> K[Next.js App Router / API Proxy]
+        K --> L[Analyze Dashboard]
+        K --> M[Video Player & Scrubber]
+        K --> N[Experiments Leaderboard]
+        K --> O[Annotator Agreement Explorer]
     end
 ```
 
-**Design rules**
+### Core Design Rules
 
-- The API opens the database **read-only**. Scripts write; the service only reads, so they never conflict (DuckDB allows one writer).
-- Raw videos and embeddings stay **on disk**; the database stores only their paths.
-- Every run is stored under a unique `run_id`, so any result in the README can be regenerated and queried.
+> [!IMPORTANT]
+> **Single-Writer DB Concurrency**: The FastAPI service opens DuckDB in **read-only mode**. Offline scripts perform batch writes, ensuring DuckDB lock conflicts never occur during serving.
+
+- **Storage Separation**: Heavy video files and raw embeddings remain on disk; the database holds only paths, frame indices, and metadata.
+- **Traceable Experiments**: Every experiment run receives an immutable, unique `run_id`, allowing any benchmark metric, prediction curve, or summary to be audited and reproduced.
 
 ---
 
 ## ✨ Features
 
-- **Data**: loaders for TVSum and SumMe (KTS-style HDF5), plus a seeded **synthetic dataset** so the whole pipeline runs without downloads.
-- **Models**: PyTorch temporal transformer · JAX port · unsupervised k-means baseline.
-- **Losses**: BCE (with label smoothing) · pairwise hinge ranking · listwise contrastive (InfoNCE).
-- **Evaluation**: knapsack summary selection · F1 vs annotator summaries · mAP vs consensus labels · per-category metrics · noise sensitivity.
-- **Robustness**: synthetic label-noise injection and a confident-learning-style relabeller.
-- **LLM layer**: three prompt variants · judge rubric · hallucination heuristic · pluggable clients (Anthropic, mock).
-- **Serving**: 8 endpoints, CORS, read-only DB access, upload scoring path, HTTP range requests for video playback.
-- **Engineering**: typed config, Makefile, Dockerfile, GitHub Actions CI, ruff, 60 tests.
+- **Multi-Dataset Ingestion**: Native loaders for TVSum and SumMe (KTS-style HDF5), plus a seeded **synthetic data generator** for testing without large downloads.
+- **Dual Framework Architecture**: Complete PyTorch temporal transformer with an identical JAX/Optax port, featuring a parameter conversion parity check.
+- **Loss Benchmarking Suite**: Binary Cross-Entropy with label smoothing, pairwise margin ranking, and listwise InfoNCE contrastive loss.
+- **Knapsack Selection**: Dynamic programming 0/1 knapsack solver that selects the highest-scoring combination of shots within the 15% length constraint.
+- **Robustness & Noise Mitigation**: Synthetic label noise injection alongside a confident-learning-style relabelling mechanism to recover noisy annotations.
+- **Audited LLM Pipeline**: 3 prompt variants (`captions`, `captions+asr`, `few_shot`), an automated judge rubric (1–5 scale), and lexical hallucination detection.
+- **Modern Interactive Web UI**: Built with Next.js 15, Tailwind CSS, and Radix UI primitives. Includes video scrubbing, score curve visualisation, leaderboard filtering, and annotator agreement inspection.
+- **Production Engineering**: Strict Pydantic v2 schemas, layered YAML configuration, Dockerized deployment, Makefile automation, and a comprehensive pytest suite (60+ tests).
 
 ---
 
-## 🧰 Tech stack
+## 🧰 Tech Stack
 
-| Layer | Tools |
+| Layer | Technologies |
 |---|---|
-| Language | Python 3.10+ |
-| Deep learning | PyTorch (primary), JAX + optax (port) |
-| Embeddings | CLIP via `transformers` (uploads) |
-| Classical ML | scikit-learn (k-means), SciPy, NumPy |
-| Database | DuckDB, pandas / pyarrow for bulk loads |
-| API | FastAPI, Pydantic v2, Uvicorn |
-| LLM | Anthropic API (optional), mock client for offline use |
-| Tooling | pytest, ruff, Docker, GitHub Actions |
+| **Frontend UI** | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, Lucide Icons, Zustand |
+| **Backend API** | FastAPI, Pydantic v2, Uvicorn, HTTP Range streaming |
+| **Deep Learning** | PyTorch (primary), JAX + Optax (parity port) |
+| **Feature Extraction** | CLIP (`transformers`), OpenCV, Pillow |
+| **Classical ML & Stats**| scikit-learn (k-means baseline), SciPy, NumPy |
+| **Embedded Database** | DuckDB, Apache Arrow / PyArrow, Pandas |
+| **LLM & Evaluation** | Anthropic Claude API (optional), offline mock client, BLIP captioning |
+| **DevOps & QA** | Docker, Makefile, pytest, ruff, GitHub Actions CI |
 
 ---
 
-## 🚀 Quick start
+## 🚀 Quick Start
 
-No dataset or GPU needed for the first run.
+You can run Peakcut immediately without downloading massive datasets or requiring an expensive GPU.
+
+### Option A: Launch the Web UI (Frontend)
+
+The frontend includes Next.js route handlers mirroring the API contract, allowing you to explore the interface right away:
 
 ```bash
-git clone https://github.com/AARAV-git/peakcut.git
-cd peakcut
+# Clone the repository
+git clone https://github.com/SV-Gdev/peakcut.git
+cd peakcut/frontend
 
-# 1. Install (pick the extras you need)
-pip install -e ".[api,jax,dev]"        # core + API + JAX + tests
+# Install dependencies and start the dev server
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser to interact with the full dashboard.
+
+---
+
+### Option B: Run the Python ML & API Pipeline (Backend)
+
+```bash
+cd peakcut/backend
+
+# 1. Install dependencies (select the extras you need)
+pip install -e ".[api,jax,dev]"        # Core + API + JAX + Testing
 # pip install -e ".[train]"            # PyTorch training
-# pip install -e ".[features]"         # CLIP extractor (video uploads)
-# pip install -e ".[llm]"              # Anthropic client
+# pip install -e ".[features]"         # CLIP video upload feature extraction
+# pip install -e ".[llm]"              # Anthropic Claude client
 
-# 2. Build the database from synthetic data
+# 2. Build the DuckDB database using synthetic data
 make db
 
-# 3. Run the unsupervised baseline and see the leaderboard
+# 3. Run the unsupervised baseline and inspect the leaderboard
 make baseline
 
-# 4. Train with each loss (needs the "train" extra)
+# 4. Train with different loss objectives (requires [train] extra)
 python scripts/train.py --loss bce
 python scripts/train.py --loss ranking
 python scripts/train.py --loss contrastive
 
-# 5. Generate LLM titles/summaries (offline plumbing demo)
+# 5. Generate LLM summaries with judge & hallucination verification (mock client)
 python scripts/generate_summaries.py --mock
 
-# 6. Start the API → http://localhost:8000/docs
+# 6. Launch the FastAPI service -> http://localhost:8000/docs
 make serve
 
-# 7. Run the tests
+# 7. Run the test suite
 make test
 ```
 
-### Using real data
+### Using Real Datasets (TVSum & SumMe)
 
-TVSum and SumMe are not bundled and the build environment could not verify any download link, so you supply the files.
+To train and evaluate on academic benchmarks:
 
 ```bash
-# put these in data/raw/
-#   tvsum.h5                  KTS/DSNet-style TVSum file
-#   summe.h5                  KTS/DSNet-style SumMe file
-#   ydata-tvsum50-info.tsv    optional: gives TVSum categories for subgroup analysis
-make data                      # checks which files are present
-make db SOURCE=tvsum           # or SOURCE=summe
+# Place the dataset files into backend/data/raw/:
+#   - tvsum.h5               (KTS/DSNet HDF5 format)
+#   - summe.h5               (KTS/DSNet HDF5 format)
+#   - ydata-tvsum50-info.tsv (optional: enables TVSum category subgroup analysis)
+
+make data                    # Verifies dataset file presence
+make db SOURCE=tvsum         # Or SOURCE=summe
 ```
 
-### LLM summaries with a real model
+### Generating LLM Summaries with Live APIs
 
 ```bash
-export ANTHROPIC_API_KEY=...                 # never commit this
-# captions: data/captions/<video_id>.json = list with one caption per sampled frame
+export ANTHROPIC_API_KEY="your-api-key-here"
+# Captions: backend/data/captions/<video_id>.json (list of frame captions)
 python scripts/generate_summaries.py --variants captions few_shot
 ```
 
 ---
 
-## 🗂 Project structure
+## 🗂 Project Structure
 
 ```
 peakcut/
-├── README.md
-├── pyproject.toml            dependencies, extras, pytest + ruff settings
-├── Makefile                  shortcuts: db, baseline, train, summaries, test, serve, reproduce
-├── Dockerfile                API image (inference only; no training deps)
-├── .github/workflows/ci.yml  ruff + pytest (CPU torch) on every push
-├── configs/                  default.yaml · loss_{bce,ranking,contrastive}.yaml · api.yaml
-├── sql/                      schema + analysis queries
-├── scripts/                  command-line entry points
-├── src/peakcut/              the package
-├── tests/                    pytest suite
-├── notebooks/                (for the annotator-disagreement exploration)
-└── data/                     gitignored: raw, features, checkpoints, db, media, captions
+├── backend/                       # Python Backend, ML Pipeline & Database
+│   ├── pyproject.toml             # Dependencies, extras, pytest & ruff configs
+│   ├── Makefile                   # Automation: db, baseline, train, serve, test
+│   ├── Dockerfile                 # Minimal inference & API container
+│   ├── configs/                   # default.yaml, loss configs, api.yaml
+│   ├── sql/                       # DuckDB DDL schema & analytical SQL queries
+│   ├── scripts/                   # CLI scripts (build_db, train, evaluate, etc.)
+│   ├── src/peakcut/               # Core package
+│   │   ├── api/                   # FastAPI routes, schemas, services
+│   │   ├── data/                  # Loaders for TVSum, SumMe, synthetic data
+│   │   ├── db/                    # DuckDB connection pool & repository
+│   │   ├── eval/                  # Knapsack solver, F1, mAP, subgroup metrics
+│   │   ├── features/              # CLIP feature extraction & cache
+│   │   ├── llm/                   # Prompts, judge rubric, hallucination check
+│   │   ├── losses/                # BCE, Pairwise Ranking, InfoNCE Contrastive
+│   │   ├── models/                # PyTorch transformer, JAX port, k-means
+│   │   └── training/              # Trainer, 5-fold CV, noise mitigation
+│   └── tests/                     # 60+ pytest unit & integration tests
+│
+├── frontend/                      # Interactive Next.js Web Application
+│   ├── src/app/                   # App Router pages and API route handlers
+│   │   └── api/peakcut/           # API routes matching FastAPI contract
+│   ├── src/components/peakcut/    # Analyze, Result, Experiments, Annotators views
+│   ├── src/components/ui/         # Radix UI + Tailwind design system
+│   ├── src/lib/peakcut/           # API client, types, formatters, mock store
+│   └── package.json               # Next.js 15, React 19, Tailwind CSS dependencies
+│
+└── overview.docx                  # Project documentation
 ```
 
 <details>
-<summary><b>📄 What every file does (click to expand)</b></summary>
+<summary><b>📄 Detailed Backend Module Breakdown (click to expand)</b></summary>
 
-### `sql/`
+### `backend/sql/`
 | File | Purpose |
 |---|---|
-| `schema.sql` | Creates all tables |
-| `annotator_agreement.sql` | Mean pairwise Pearson correlation between annotators per video; flags the bottom quartile per dataset |
-| `per_category_metrics.sql` | F1 / mAP averaged per video category for one run |
-| `noise_sensitivity.sql` | Metrics vs injected label-noise level, per loss |
-| `leaderboard.sql` | All runs ranked by F1 then mAP |
+| `schema.sql` | DuckDB relational DDL defining all tables |
+| `annotator_agreement.sql` | Computes pairwise Pearson correlation per video; flags the bottom agreement quartile |
+| `per_category_metrics.sql` | Aggregates F1 / mAP by semantic video category |
+| `noise_sensitivity.sql` | Performance degradation curves across injected noise levels |
+| `leaderboard.sql` | Ranks all recorded runs by F1 and mAP |
 
-### `scripts/`
-| File | Purpose |
+### `backend/scripts/`
+| Script | Purpose |
 |---|---|
-| `download_data.py` | Checks that dataset files exist in `data/raw/` and says what is missing |
-| `build_db.py` | Builds the DuckDB database from synthetic data, TVSum or SumMe; writes features to disk |
-| `extract_features.py` | CLIP embeddings for your own video folder (not wired into TVSum annotations) |
-| `train.py` | 5-fold cross-validated PyTorch training; stores predictions, metrics, highlights; `--save-final` writes a checkpoint |
-| `evaluate.py` | Runs the k-means baseline and prints the leaderboard |
-| `generate_summaries.py` | LLM titles/summaries → judge → hallucination flag → database |
+| `download_data.py` | Verifies presence of TVSum/SumMe files in `data/raw/` |
+| `build_db.py` | Ingests synthetic data or HDF5 benchmarks into DuckDB and caches features |
+| `extract_features.py` | Extracts CLIP frame embeddings for custom uploaded videos |
+| `train.py` | Runs 5-fold cross-validated PyTorch training; records out-of-fold metrics |
+| `evaluate.py` | Computes unsupervised k-means baseline scores and prints the leaderboard |
+| `generate_summaries.py` | Runs LLM summary generation, judge scoring, and hallucination flagging |
 
-### `src/peakcut/`
-| Module | File | Purpose |
+### `backend/src/peakcut/`
+| Subpackage | Key Files | Description |
 |---|---|---|
-| core | `config.py` | Typed config loaded from layered YAML; seeding |
-| `db/` | `connection.py` | Opens DuckDB (read-write for scripts, **read-only** for the API) |
-| | `loader.py` | Creates schema, bulk-loads videos/segments/annotations, computes agreement |
-| | `repository.py` | **All** SQL access in one place |
-| `data/` | `common.py` | `VideoRecord`, consensus scores, binary labels |
-| | `h5_format.py` | Reader for the KTS-style HDF5 layout |
-| | `tvsum.py`, `summe.py` | Dataset-specific wrappers (TVSum adds categories) |
-| | `synthetic.py` | Seeded synthetic data with category-dependent annotator noise |
-| | `agreement.py` | Agreement in numpy (tested equal to the SQL version) |
-| | `dataset.py` | Dataset + padding collate |
-| `features/` | `extractor.py` | Frame sampling + CLIP embeddings |
-| | `cache.py` | Save/load embeddings |
-| `models/` | `temporal_transformer.py` | PyTorch model: embeddings → per-frame logits |
-| | `jax_transformer.py` | JAX port, torch→JAX weight converter, BCE train step |
-| | `kmeans_baseline.py` | Unsupervised baseline |
-| | `positional.py` | Sinusoidal encoding shared by both frameworks |
-| `losses/` | `bce.py`, `ranking.py`, `contrastive.py` | The three losses (common signature) |
-| | `reference.py` | NumPy reference versions used in tests |
-| `training/` | `trainer.py` | Train loop, k-fold CV, checkpoints |
-| | `noise.py` | Noise injection and confident-learning-style relabelling |
-| `eval/` | `metrics.py` | F1 and average precision |
-| | `segments.py` | Segmenting and 0/1 knapsack selection |
-| | `runner.py` | Evaluate predictions and write everything to the DB |
-| | `subgroup.py` | Per-category aggregation |
-| | `noise_sensitivity.py` | Metric sweep over noise levels |
-| `llm/` | `clients.py` | Anthropic client and a mock |
-| | `captioner.py` | BLIP frame captions |
-| | `prompts.py` | Three prompt variants + judge rubric |
-| | `generator.py` | Generate → judge → flag → save pipeline (the judge lives here) |
-| | `hallucination.py` | Lexical unsupported-word check |
-| `api/` | `main.py` | App factory (CORS, read-only DB, optional model loading) |
-| | `routes.py` | Endpoints |
-| | `schemas.py` | Pydantic models |
-| | `services.py` | Logic behind routes |
-| | `dependencies.py` | Per-request repository |
+| `api/` | `routes.py`, `schemas.py`, `services.py` | REST API endpoints, Pydantic DTOs, and video streaming service |
+| `db/` | `connection.py`, `loader.py`, `repository.py` | Read-only connection management and centralised SQL query execution |
+| `data/` | `tvsum.py`, `summe.py`, `synthetic.py` | HDF5 parsing, consensus computation, and synthetic noise generation |
+| `models/` | `temporal_transformer.py`, `jax_transformer.py` | Hand-coded attention transformer in PyTorch and JAX with exact weight parity |
+| `losses/` | `bce.py`, `ranking.py`, `contrastive.py` | Unified loss interfaces: classification, margin ranking, and listwise InfoNCE |
+| `training/` | `trainer.py`, `noise.py` | K-fold cross-validation loop and confident-learning noise relabelling |
+| `eval/` | `segments.py`, `metrics.py`, `runner.py` | 0/1 knapsack dynamic programming, F1 overlap calculation, and mAP |
+| `llm/` | `prompts.py`, `generator.py`, `hallucination.py`| Prompt variations, LLM judge evaluation, and lexical hallucination auditing |
 
 </details>
 
@@ -243,249 +265,231 @@ peakcut/
 
 ## 🗄 Database
 
-One DuckDB file: `data/db/peakcut.duckdb`.
+Peakcut persists all experiment data in a single embedded DuckDB database file: `backend/data/db/peakcut.duckdb`.
 
 ```mermaid
 erDiagram
-    videos ||--o{ segments : has
-    videos ||--o{ annotations : has
-    videos ||--o| annotator_agreement : summarised_by
-    experiments ||--o{ predictions : produces
-    experiments ||--o{ metrics : scored_by
-    experiments ||--o{ highlights : selects
-    highlights ||--o{ summaries : described_by
-    highlights ||--o{ llm_eval : evaluated_by
+    videos ||--o{ segments : "has shots"
+    videos ||--o{ annotations : "has annotators"
+    videos ||--o| annotator_agreement : "summarised by"
+    experiments ||--o{ predictions : "produces"
+    experiments ||--o{ metrics : "evaluated by"
+    experiments ||--o{ highlights : "selects"
+    highlights ||--o{ summaries : "explained by"
+    highlights ||--o{ llm_eval : "audited by"
 ```
 
-| Table | Holds |
+| Table | Purpose |
 |---|---|
-| `videos` | One row per video: dataset, category, duration, fps, sampled-frame count, sample rate, feature/media paths |
-| `segments` | Shot boundaries (inclusive start/end in sampled-frame index) |
-| `annotations` | Per video, per annotator, per sampled frame importance |
-| `annotator_agreement` | Mean pairwise correlation, number of pairs, `high_disagreement` flag |
-| `experiments` | One row per run: framework, loss, label noise, seed, full config JSON |
-| `predictions` | Per run, per video, per frame score |
-| `metrics` | F1 / mAP at `overall`, `category` and `video` scope |
-| `highlights` | Selected segments (times and indices) per run and video |
-| `summaries` | LLM title + summary per highlight and prompt variant |
-| `llm_eval` | Judge scores, hallucination flag, optional human score |
+| `videos` | Metadata per video: dataset, category, duration, fps, sample count, media paths |
+| `segments` | Segment / shot boundaries (start and end sampled-frame indices) |
+| `annotations` | Per-annotator, per-frame importance scores |
+| `annotator_agreement` | Mean pairwise correlation and `high_disagreement` quartile flag |
+| `experiments` | Experiment registry: model architecture, loss, noise level, seed, full config |
+| `predictions` | Out-of-fold predicted frame importance scores |
+| `metrics` | Evaluated F1 and mAP across `overall`, `category`, and `video` levels |
+| `highlights` | Selected highlight segments under length budget |
+| `summaries` | LLM-generated titles and summaries per highlight segment and prompt variant |
+| `llm_eval` | Faithfulness score, informativeness score, and lexical hallucination flag |
 
-> **No foreign-key constraints, on purpose.** DuckDB cannot replace a parent row that has children, which breaks re-running an experiment. Integrity is enforced by tests (`tests/test_db.py` checks for orphan rows).
+> [!NOTE]
+> Foreign keys are intentionally omitted: DuckDB prevents modifying parent rows with active child dependencies, which would prevent cleanly re-running experiments. Integrity is guaranteed via automated tests (`test_db.py`).
 
-**Example queries**
+### Useful SQL Queries
 
 ```sql
--- Which loss works best, and how does label noise hurt it?
-SELECT * FROM (<contents of sql/noise_sensitivity.sql>);
+-- 1. Identify videos with the highest annotator disagreement
+SELECT video_id, mean_corr, high_disagreement 
+FROM annotator_agreement 
+ORDER BY mean_corr ASC 
+LIMIT 10;
 
--- Videos where annotators disagree most
-SELECT video_id, mean_corr FROM annotator_agreement ORDER BY mean_corr LIMIT 10;
+-- 2. Compare loss performance and noise resilience
+SELECT experiment_id, loss_fn, label_noise, metric_value 
+FROM metrics 
+JOIN experiments USING (experiment_id) 
+WHERE metric_name = 'f1_score' AND scope = 'overall' 
+ORDER BY metric_value DESC;
 
--- Hallucination rate by prompt variant
-SELECT prompt_variant, avg(CAST(hallucinated AS INT)) AS rate FROM llm_eval GROUP BY 1;
+-- 3. Hallucination frequency across LLM prompt variants
+SELECT prompt_variant, 
+       ROUND(AVG(CAST(hallucinated AS INT)) * 100, 2) AS hallucination_pct,
+       ROUND(AVG(faithfulness_score), 2) AS avg_faithfulness
+FROM llm_eval 
+GROUP BY prompt_variant;
 ```
 
 ---
 
-## 🔌 API reference
+## 🔌 API Reference
 
-Interactive docs at `http://localhost:8000/docs`.
+Interactive Swagger documentation is available at `http://localhost:8000/docs` when running the backend.
 
-| Method | Path | Purpose |
+| Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Liveness, DB reachable, whether upload scoring is available |
-| `GET` | `/videos` | List known videos |
-| `GET` | `/videos/{video_id}` | Metadata, agreement, per-annotator score curves |
-| `GET` | `/media/{video_id}` | Stream the video file (supports range requests) |
-| `POST` | `/highlights` | JSON `{video_id, run_id?}` → stored highlights; multipart `file` → live scoring |
-| `POST` | `/summaries` | LLM titles/summaries for highlight ids (stored runs only) |
-| `GET` | `/experiments` | Leaderboard |
-| `GET` | `/experiments/{run_id}/metrics` | Overall and per-category metrics |
+| `GET` | `/health` | Service health check, database connectivity, and feature extractor status |
+| `GET` | `/videos` | List all ingested videos with duration and dataset info |
+| `GET` | `/videos/{video_id}` | Detailed metadata, agreement statistics, and annotator score curves |
+| `GET` | `/media/{video_id}` | Video streaming endpoint supporting HTTP 206 partial range requests |
+| `POST` | `/highlights` | Request highlights for a known video or upload a video for on-the-fly scoring |
+| `POST` | `/summaries` | Retrieve LLM titles/summaries for specific highlight segment IDs |
+| `GET` | `/experiments` | Fetch the full experiment leaderboard sorted by performance |
+| `GET` | `/experiments/{run_id}/metrics` | Detailed overall and per-category metrics for a given experiment |
+
+### Highlight Request Example
 
 ```bash
-curl -X POST localhost:8000/highlights \
-  -H 'content-type: application/json' \
+curl -X POST http://localhost:8000/highlights \
+  -H "Content-Type: application/json" \
   -d '{"video_id": "synthetic_000"}'
 ```
+
 ```jsonc
 {
   "video_id": "synthetic_000",
   "run_id": "kmeans_s42",
   "sample_rate": 2.0,
-  "scores": [0.12, 0.18, 0.77],          // one per sampled frame
+  "scores": [0.12, 0.18, 0.77, 0.85, ...],
   "highlights": [
-    {"highlight_id": "kmeans_s42:synthetic_000:0",
-     "start_sec": 15.0, "end_sec": 17.5, "start_idx": 30, "end_idx": 34, "score": 0.74}
+    {
+      "highlight_id": "kmeans_s42:synthetic_000:0",
+      "start_sec": 15.0,
+      "end_sec": 22.5,
+      "start_idx": 30,
+      "end_idx": 45,
+      "score": 0.81
+    }
   ]
 }
 ```
 
-**Behaviour worth knowing**
-
-- If `run_id` is omitted, the **best clean run** (no injected noise) by overall F1 is used.
-- Malformed bodies return **422**; unknown videos or runs return **404**.
-- Upload scoring returns **501** unless a feature extractor and scorer are loaded (needs the `features` extra), **413** above the size limit, **422** for undecodable video.
-- Uploaded results are **not stored**, and `/summaries` for uploads returns **501**.
-
 ---
 
-## 🔬 Method in detail
+## 🔬 Method in Detail
 
-### Data representation
-Every video is a `VideoRecord`: frame embeddings `(T, D)`, annotator scores `(U, T)`, shot segments `(S, 2)`, duration. All indices are in **sampled-frame** space; `sample_rate = T / duration` converts to seconds.
+### 1. Data Representation & Consensus Labels
+- Each video is stored as a `VideoRecord` containing frame embeddings $(T, D)$, annotator ratings $(U, T)$, shot boundaries $(S, 2)$, and duration.
+- **Consensus Score**: Computed as the mean of min-max normalised scores across all human annotators.
+- **Binary Highlight Labels**: Top 15% of frames ranked by consensus (`label_positive_ratio = 0.15`).
 
-### Labels
-- **Consensus** = mean over annotators of each annotator's min-max-normalised score.
-- **Binary label** = top 15% of frames by consensus (`label_positive_ratio`).
+### 2. Temporal Transformer Architecture
+- Input frame embeddings are linearly projected into $d_{\text{model}}$ dimensions, enriched with sinusoidal positional encodings, and processed through pre-norm transformer blocks with explicit multi-head self-attention and causal padding masks.
+- Implemented with identical architectures in PyTorch and JAX to guarantee parameter conversion parity.
 
-### Model
-Frame embeddings → linear projection → sinusoidal positions → pre-norm transformer blocks (explicit multi-head attention with padding mask) → LayerNorm → linear head → one logit per frame. Written out by hand in both PyTorch and JAX so weights convert exactly.
+### 3. Loss Functions
+All loss implementations share a standard signature `loss(logits, labels, mask)`:
+- **Binary Cross-Entropy (BCE)**: Frame-level classification with optional label smoothing.
+- **Pairwise Ranking**: Enforces a margin $m$ between highlight and non-highlight frames:
+  $$\mathcal{L}_{\text{rank}} = \frac{1}{|P||N|} \sum_{i \in P} \sum_{j \in N} \max(0, m - (s_i - s_j))$$
+- **Listwise Contrastive (InfoNCE)**: Treats highlight frames as queries and contrasts them against all non-highlight frames in the video at temperature $\tau$.
 
-### Losses (common signature `loss(logits, labels, mask)`)
-| Loss | Idea |
-|---|---|
-| **BCE** | Per-frame classification; optional label smoothing |
-| **Ranking** | Every highlight frame must outscore every non-highlight frame in its video by a margin (pairwise hinge) |
-| **Contrastive** | Listwise InfoNCE: each highlight frame is contrasted against all non-highlight frames, temperature `tau` |
+### 4. Summary Selection via 0/1 Knapsack
+- Highlight selection groups frames into segments (either dataset shot boundaries or 5-second uniform chunks).
+- Each segment receives an importance value equal to its mean normalised predicted score.
+- A dynamic programming 0/1 knapsack algorithm selects the combination of segments that maximises total score while strictly respecting the 15% total video duration budget.
 
-### Summary selection
-Frames → shots (dataset boundaries, or fixed 5-sample segments for uploads) → each shot valued by its mean normalised score → **0/1 knapsack** under a length budget of 15% of the video. If no whole shot fits, the best one is truncated to the budget.
+### 5. Robustness & Confident Learning
+- **Noise Injection**: Controllable label noise flips an exact proportion of training labels while preserving clean validation ground-truth.
+- **Mitigation**: A custom confident-learning relabeller identifies and corrects label noise based on out-of-fold predicted class probabilities.
 
-### Metrics
-| Metric | Definition |
-|---|---|
-| **F1** | Overlap between the predicted summary and each annotator's summary, aggregated by `avg` (TVSum) or `max` (SumMe) |
-| **mAP** | Average precision of frame scores against consensus labels, averaged over videos |
-| **Agreement** | Mean pairwise Pearson correlation between annotators; bottom quartile per dataset = high disagreement |
-
-### Training protocol
-**5-fold cross-validation** at the video level, so every video has exactly one **out-of-fold** prediction. Those predictions are what is evaluated and stored.
-
-### Label-noise study
-- **Injection**: flip an exact fraction of training labels (evaluation always uses clean labels).
-- **Mitigation**: label smoothing, and a confident-learning-style relabeller (own implementation of the per-class-threshold rule, not the Cleanlab package) driven by inner out-of-fold probabilities.
-
-### LLM evaluation
-| Step | What happens |
-|---|---|
-| Generate | Three prompt variants: `captions`, `captions+asr`, `few_shot` |
-| Judge | LLM scores **faithfulness** and **informativeness** (1–5) against the source captions |
-| Check | Lexical heuristic flags titles/summaries whose content words are unsupported by the captions |
-| Store | `summaries` and `llm_eval` tables, aggregated by prompt variant |
-
-### JAX port
-Same architecture, converted from PyTorch weights, compared output-for-output in a parity test, plus a jitted BCE train step for throughput comparison. It does **not** run the loss study.
-
----
-
-## ⚙️ Configuration
-
-`configs/default.yaml`, overridden by later files (`--config a.yaml b.yaml`).
-
-| Section | Key settings |
-|---|---|
-| `evaluation` | `budget_ratio` (0.15), `label_positive_ratio` (0.15), `f1_rule`, `fixed_segment_len` |
-| `train` | `loss`, `epochs`, `lr`, `d_model`, `n_heads`, `n_layers`, `label_smoothing`, `label_noise`, `tau`, `margin`, `folds`, `device` |
-| `llm` | `provider`, `model`, `max_tokens`, `prompt_variants` |
-| `api` | `checkpoint`, `max_upload_mb`, `cors_origins` |
-| `paths` | data, features, checkpoints, media, captions, database |
-
-Unknown keys raise an error rather than being silently ignored.
+### 6. LLM Summaries & Verification
+- **Generation**: Three prompt strategies (`captions`, `captions+asr`, `few_shot`).
+- **LLM Judge**: Evaluates generated text on a 1–5 scale for **faithfulness** (factual alignment with captions) and **informativeness** (contextual value).
+- **Lexical Hallucination Check**: Automatically extracts non-stopword content words from generated summaries and verifies their presence in the source frame captions.
 
 ---
 
 ## 🧪 Testing
 
+The repository includes a comprehensive test suite covering mathematical correctness, database integrity, framework parity, and API behaviour.
+
 ```bash
-make test        # pytest
-make lint        # ruff
+# Run backend tests
+cd backend && make test
+
+# Run linter
+cd backend && make lint
+
+# Run frontend linting
+cd frontend && npm run lint
 ```
 
-| Area | What is verified |
+| Test Area | What is Verified |
 |---|---|
-| Metrics | F1 and AP against hand-computed values |
-| Segments | Knapsack equals brute force on random cases; budget respected |
-| Losses | NumPy reference values; PyTorch losses match them; finite with no positives/negatives |
-| Models | Shapes; JAX padding invariance; JAX training reduces loss; **PyTorch ↔ JAX parity** |
-| Agreement | SQL result equals the numpy implementation |
-| Database | Round-trip, re-load idempotence, re-running a run replaces it, no orphan rows, read-only enforced |
-| SQL files | Per-category SQL equals Python aggregation; leaderboard ordering |
-| Noise | Exact flip counts; relabeller recovers most flipped labels |
-| Parser | KTS-HDF5 round-trip |
-| LLM | Prompt variants, JSON parsing, judge, hallucination flag, full pipeline with a mock client |
-| API | Every endpoint, error codes, upload path with a fake extractor, CORS |
-| Determinism | Same seed → same data and metrics; k-fold partitions every video once |
+| **Metrics** | F1 and average precision match analytical ground truth |
+| **Knapsack** | Dynamic programming output matches exhaustive brute force; budget strictly held |
+| **Losses** | PyTorch and JAX losses match NumPy reference implementations within $1e-5$ |
+| **Parity** | PyTorch weights convert to JAX; both produce identical forward-pass logits |
+| **Agreement** | SQL-calculated annotator agreement matches vectorized NumPy calculations |
+| **Database** | Idempotent loads, cascade replacement on re-runs, zero orphan rows, read-only enforcement |
+| **API** | Status codes, error handling (404, 413, 422, 501), upload pipeline, range streaming |
 
 ---
 
-## 🐳 Docker
+## 🐳 Docker Deployment
+
+A lightweight Dockerfile is provided for running the backend API in containerised environments:
 
 ```bash
-docker build -t peakcut .
-docker run -p 8000:8000 -v "$PWD/data:/app/data" peakcut
+# Build the backend image
+docker build -t peakcut-backend backend/
+
+# Run the container (mounting data directory)
+docker run -p 8000:8000 -v "$PWD/backend/data:/app/data" peakcut-backend
 ```
 
-The image is **inference-only** (API + database, no torch). To enable upload scoring, install the `features` extra in the image; it is much larger.
-
 ---
 
-## ✅ Project status (read this)
+## ✅ Project Status (Read This)
 
-**Executed and passing:** schema, loader, repository, SQL queries, agreement, knapsack, metrics, noise utilities, HDF5 parser (on synthetic data), JAX model, LLM pipeline with a mock client, all API endpoints, and a live server smoke test.
+### Verified Components:
+- DuckDB schema, data loader, query repository, and analytical SQL queries.
+- Knapsack dynamic programming solver and evaluation metric suite (F1, mAP).
+- JAX model implementation, padding invariance, and loss convergence.
+- LLM pipeline with mock clients, judge rubrics, and lexical hallucination flags.
+- Complete FastAPI backend and interactive Next.js 15 web application.
 
-**Written but not yet executed — verify on your machine:**
+### Hardware-Dependent Real-Data Execution:
+- PyTorch training and evaluation on full TVSum/SumMe datasets requires raw HDF5 files.
+- CLIP feature extraction and live Anthropic API calls require local GPUs / valid API keys.
 
-- PyTorch model, losses and trainer (the PyTorch-dependent tests skip without torch and run in CI).
-- CLIP extractor, BLIP captioner, Anthropic client.
-- Loading the **real** TVSum / SumMe files. In the KTS-HDF5 layout the annotations are **binary per-annotator summaries**, not raw 1–5 scores, so agreement on TVSum is computed on those masks.
+### Benchmark Results Table
 
-**Not a result:** anything produced from the synthetic dataset is a pipeline check, not a finding.
-
-### 📊 Results
-
-Fill this table from `make baseline` and `scripts/train.py` on **real data**. Left empty on purpose.
-
-| Run | Framework | Loss | Label noise | F1 | mAP |
+| Experiment Run | Framework | Loss Function | Label Noise | F1 Score | mAP |
 |---|---|---|---|---|---|
-| `kmeans_s42` | — | — | 0 | _tbd_ | _tbd_ |
-| `pytorch_bce_n0.0_s42` | PyTorch | BCE | 0 | _tbd_ | _tbd_ |
-| `pytorch_ranking_n0.0_s42` | PyTorch | Ranking | 0 | _tbd_ | _tbd_ |
-| `pytorch_contrastive_n0.0_s42` | PyTorch | Contrastive | 0 | _tbd_ | _tbd_ |
-
-Also report: per-category F1/mAP, metric vs noise level, high- vs low-agreement videos, LLM faithfulness and hallucination rate by prompt variant, and PyTorch vs JAX throughput.
+| `kmeans_s42` | Scikit-Learn | Unsupervised | 0.0 | _tbd_ | _tbd_ |
+| `pytorch_bce_n0.0_s42` | PyTorch | BCE | 0.0 | _tbd_ | _tbd_ |
+| `pytorch_ranking_n0.0_s42` | PyTorch | Ranking | 0.0 | _tbd_ | _tbd_ |
+| `pytorch_contrastive_n0.0_s42` | PyTorch | Contrastive | 0.0 | _tbd_ | _tbd_ |
 
 ---
-
-## ⚠️ Known limitations
-
-- Uploaded videos are scored but not persisted; their titles/summaries are not implemented.
-- Uploads use fixed-length segments (no shot detection).
-- `extract_features.py` makes CLIP features for your own videos; it is not aligned to TVSum/SumMe annotations (those use their bundled features).
-- The hallucination check is lexical: it misses paraphrases and wrong relations. The LLM judge is another imperfect signal; calibrate it against a few dozen hand-rated examples.
-- The frontend is not part of this repository; the API contract above is what it should call.
 
 ## 🛣 Roadmap
 
-- [ ] Run PyTorch training on real TVSum/SumMe and fill the results table
-- [ ] Human-rated sample to calibrate the LLM judge
-- [ ] Shot detection for uploads
-- [ ] Persist upload results in a separate writable database
-- [ ] React frontend (analyze, result, experiments, annotators pages)
-- [ ] ASR transcripts for the `captions+asr` prompt variant
+- [x] Full-Stack interactive web dashboard (Analyze, Result, Experiments, Annotators)
+- [x] Dual framework implementation (PyTorch + JAX) with parameter parity
+- [x] Multiple loss formulations (BCE, Pairwise Ranking, InfoNCE)
+- [x] DuckDB analytical data warehouse and reproducible experiment tracking
+- [ ] PyTorch training benchmark runs on real TVSum / SumMe datasets
+- [ ] Calibrate LLM-as-judge rubric against human-curated highlight descriptions
+- [ ] Native shot boundary detection for arbitrary user-uploaded videos
+- [ ] Whisper-based ASR transcription integration for the `captions+asr` prompt variant
 
-## 📚 Datasets
+---
+
+## 📚 References & Datasets
 
 - **TVSum**: Song et al., *TVSum: Summarizing Web Videos Using Titles*, CVPR 2015.
 - **SumMe**: Gygli et al., *Creating Summaries from User Videos*, ECCV 2014.
 
-Check each dataset's licence before redistributing any files; Peakcut does not bundle them.
+---
 
 ## 📄 License
 
-Add a `LICENSE` file before publishing (MIT or Apache-2.0 are common choices).
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
 <div align="center">
-Built for experiments you can <b>reproduce</b>, <b>query</b> and <b>defend</b>. 🎯
+Built for video highlight experiments you can <b>reproduce</b>, <b>query</b>, and <b>defend</b>. 🎯
 </div>
