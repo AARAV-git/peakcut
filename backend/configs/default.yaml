@@ -1,0 +1,43 @@
+seed: 42
+paths:
+  data_dir: data
+  raw_dir: data/raw
+  features_dir: data/features
+  checkpoints_dir: data/checkpoints
+  media_dir: data/media
+  captions_dir: data/captions
+  db_path: data/db/peakcut.duckdb
+features:
+  embedding_model: openai/clip-vit-base-patch32
+  sample_fps: 2.0
+  batch_size: 32
+evaluation:
+  budget_ratio: 0.15          # summary may use at most 15% of the video
+  label_positive_ratio: 0.15  # top 15% of consensus frames are "highlight" labels
+  f1_rule: avg                # 'avg' (TVSum) or 'max' (SumMe) over annotators
+  fixed_segment_len: 5        # samples per segment when no shot boundaries exist
+train:
+  loss: bce
+  epochs: 30
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 8
+  d_model: 128
+  n_heads: 4
+  n_layers: 2
+  dropout: 0.1
+  label_smoothing: 0.0
+  label_noise: 0.0
+  tau: 0.5
+  margin: 1.0
+  folds: 5
+  device: auto
+llm:
+  provider: anthropic
+  model: claude-sonnet-5-5
+  max_tokens: 300
+  prompt_variants: [captions, "captions+asr", few_shot]
+api:
+  checkpoint: data/checkpoints/best.pt
+  max_upload_mb: 200
+  cors_origins: ["http://localhost:5173"]

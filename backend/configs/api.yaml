@@ -1,0 +1,6 @@
+api:
+  checkpoint: data/checkpoints/best.pt
+  max_upload_mb: 200
+  cors_origins: ["http://localhost:5173"]
+llm:
+  model: claude-sonnet-5-5
